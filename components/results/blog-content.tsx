@@ -78,7 +78,12 @@ export default function BlogContent({ blogData }: BlogContentProps) {
     
     if (isHtml) {
       // If it's HTML, render it directly
-      return <div dangerouslySetInnerHTML={{ __html: contentStr }} />;
+      return (
+        <div 
+          dangerouslySetInnerHTML={{ __html: contentStr }} 
+          className="prose-headings:font-bold prose-headings:mb-4 prose-headings:mt-6 prose-p:mb-4 prose-p:leading-relaxed"
+        />
+      );
     } else if (isMarkdown) {
       // If it's markdown, convert to HTML first
       try {
@@ -89,7 +94,16 @@ export default function BlogContent({ blogData }: BlogContentProps) {
           mangle: false        // Don't mangle email addresses
         };
         const htmlContent = marked.parse(contentStr, markedOptions);
-        return <div dangerouslySetInnerHTML={{ __html: htmlContent }} className="markdown-content" />;
+        return (
+          <div 
+            dangerouslySetInnerHTML={{ __html: htmlContent }} 
+            className="markdown-content prose-headings:font-bold prose-headings:mb-4 prose-headings:mt-6 prose-p:mb-4 prose-p:leading-relaxed"
+            style={{
+              lineHeight: 1.7,
+              fontSize: '1.1rem',
+            }}
+          />
+        );
       } catch (error) {
         console.error("Error parsing markdown:", error);
         return formatPlainText(contentStr);
@@ -104,39 +118,48 @@ export default function BlogContent({ blogData }: BlogContentProps) {
   const formatPlainText = (text: string) => {
     if (!text) return <p>No content to display</p>;
     
-    // First, convert common heading patterns and line breaks
-    const processedText = text
-      // Handle single line breaks to preserve them
-      .replace(/\n([^\n])/g, '<br/>$1')
-      // Process potential headings (lines starting with capital letters)
-      .replace(/^([A-Z][A-Za-z\s:]{3,30})$/gm, '<h2>$1</h2>')
-      // Convert lines that are in ALL CAPS to h3 headings
-      .replace(/^([A-Z][A-Z\s]{3,30})$/gm, '<h3>$1</h3>');
+    // Split text into sections (paragraphs or potential headings)
+    const sections = text.split(/\n\n+/);
     
-    // Now split by double line breaks (paragraphs)
-    const paragraphs = processedText
-      .split("\n\n")
-      .filter((paragraph: string) => paragraph.trim() !== "");
-    
-    // Process each paragraph, preserving any HTML we just added
     return (
-      <>
-        {paragraphs.map((paragraph: string, index: number) => {
-          // Check if this paragraph already has heading tags
-          if (paragraph.startsWith('<h2>') || paragraph.startsWith('<h3>')) {
-            return <div key={index} dangerouslySetInnerHTML={{ __html: paragraph }} />;
+      <div className="flex flex-col gap-4" style={{ lineHeight: 1.7 }}>
+        {sections.map((section, index) => {
+          // Check if this might be a heading (all caps or starts with capital and short)
+          const isHeading = 
+            (section.toUpperCase() === section && section.length < 80) || 
+            (/^[A-Z][^.!?]*$/.test(section) && section.length < 60);
+          
+          // Replace single line breaks with <br> tags
+          const formattedContent = section
+            .split('\n')
+            .map((line, i) => (
+              <React.Fragment key={i}>
+                {i > 0 && <br />}
+                {line}
+              </React.Fragment>
+            ));
+          
+          if (isHeading) {
+            return (
+              <h2 
+                key={index} 
+                className="text-xl font-bold mt-6 mb-2 border-b border-gray-200 pb-1"
+              >
+                {formattedContent}
+              </h2>
+            );
           }
           
-          // Otherwise, render as regular paragraph with preserved line breaks
           return (
             <p 
               key={index} 
-              className="mb-4 text-base md:text-lg font-light leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: paragraph }}
-            />
+              className="text-base md:text-lg font-light leading-relaxed"
+            >
+              {formattedContent}
+            </p>
           );
         })}
-      </>
+      </div>
     );
   };
 
@@ -291,7 +314,7 @@ export default function BlogContent({ blogData }: BlogContentProps) {
         </div>
       )}
 
-      <div className="prose prose-emerald dark:prose-invert max-w-none stagger-fade-in markdown-content">
+      <div className="prose prose-emerald prose-h1:text-2xl prose-h1:font-bold prose-h1:mb-6 prose-h2:text-xl prose-h2:font-semibold prose-h2:mb-4 prose-h2:mt-8 prose-h3:text-lg prose-h3:font-medium prose-h3:mb-3 prose-h3:mt-6 prose-p:mb-4 prose-p:leading-relaxed prose-p:text-base prose-p:md:text-lg prose-li:mb-2 prose-li:ml-4 dark:prose-invert max-w-none stagger-fade-in markdown-content">
         {formattedContent}
       </div>
       
