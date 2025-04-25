@@ -64,7 +64,10 @@ export default function BlogContent({ blogData }: BlogContentProps) {
     selectedContent.includes('**') || 
     selectedContent.includes('__') ||
     selectedContent.includes('- ') ||
-    selectedContent.includes('1. ')
+    selectedContent.includes('1. ') ||
+    selectedContent.includes('\n\n') ||  // Multiple paragraphs
+    selectedContent.includes('*') ||     // Italics or lists
+    selectedContent.includes('[') && selectedContent.includes('](') // Links
   );
 
   // Format the content appropriately based on type
@@ -79,8 +82,14 @@ export default function BlogContent({ blogData }: BlogContentProps) {
     } else if (isMarkdown) {
       // If it's markdown, convert to HTML first
       try {
-        const htmlContent = marked.parse(contentStr);
-        return <div dangerouslySetInnerHTML={{ __html: htmlContent }} />;
+        const markedOptions = {
+          breaks: true,        // Enable line breaks
+          gfm: true,           // Enable GitHub Flavored Markdown
+          headerIds: true,     // Enable header IDs for better navigation
+          mangle: false        // Don't mangle email addresses
+        };
+        const htmlContent = marked.parse(contentStr, markedOptions);
+        return <div dangerouslySetInnerHTML={{ __html: htmlContent }} className="markdown-content" />;
       } catch (error) {
         console.error("Error parsing markdown:", error);
         return formatPlainText(contentStr);
@@ -95,14 +104,40 @@ export default function BlogContent({ blogData }: BlogContentProps) {
   const formatPlainText = (text: string) => {
     if (!text) return <p>No content to display</p>;
     
-    return text
+    // First, convert common heading patterns and line breaks
+    const processedText = text
+      // Handle single line breaks to preserve them
+      .replace(/\n([^\n])/g, '<br/>$1')
+      // Process potential headings (lines starting with capital letters)
+      .replace(/^([A-Z][A-Za-z\s:]{3,30})$/gm, '<h2>$1</h2>')
+      // Convert lines that are in ALL CAPS to h3 headings
+      .replace(/^([A-Z][A-Z\s]{3,30})$/gm, '<h3>$1</h3>');
+    
+    // Now split by double line breaks (paragraphs)
+    const paragraphs = processedText
       .split("\n\n")
-      .filter((paragraph: string) => paragraph.trim() !== "")
-      .map((paragraph: string, index: number) => (
-        <p key={index} className="mb-4 text-base md:text-lg font-light leading-relaxed">
-          {paragraph}
-        </p>
-      ));
+      .filter((paragraph: string) => paragraph.trim() !== "");
+    
+    // Process each paragraph, preserving any HTML we just added
+    return (
+      <>
+        {paragraphs.map((paragraph: string, index: number) => {
+          // Check if this paragraph already has heading tags
+          if (paragraph.startsWith('<h2>') || paragraph.startsWith('<h3>')) {
+            return <div key={index} dangerouslySetInnerHTML={{ __html: paragraph }} />;
+          }
+          
+          // Otherwise, render as regular paragraph with preserved line breaks
+          return (
+            <p 
+              key={index} 
+              className="mb-4 text-base md:text-lg font-light leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: paragraph }}
+            />
+          );
+        })}
+      </>
+    );
   };
 
   // Format the selected content for display
@@ -256,7 +291,7 @@ export default function BlogContent({ blogData }: BlogContentProps) {
         </div>
       )}
 
-      <div className="prose prose-emerald dark:prose-invert max-w-none stagger-fade-in">
+      <div className="prose prose-emerald dark:prose-invert max-w-none stagger-fade-in markdown-content">
         {formattedContent}
       </div>
       
