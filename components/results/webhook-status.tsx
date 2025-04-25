@@ -4,12 +4,16 @@ interface WebhookStatusProps {
   status: 'success' | 'error' | 'info'
   title?: string
   message: string
+  responseFormat?: string
+  responseStatus?: number
 }
 
 export default function WebhookStatus({ 
   status, 
   title = "Webhook Status", 
-  message 
+  message,
+  responseFormat,
+  responseStatus
 }: WebhookStatusProps) {
   // Determine styles based on status
   let statusStyle = ""
@@ -36,6 +40,21 @@ export default function WebhookStatus({
         <div className="text-sm">
           {message}
         </div>
+        
+        {(responseFormat || responseStatus) && (
+          <div className="text-xs mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+            {responseStatus && (
+              <div className="inline-block mr-3">
+                Status: <span className="font-medium">{responseStatus}</span>
+              </div>
+            )}
+            {responseFormat && (
+              <div className="inline-block">
+                Format: <span className="font-medium">{responseFormat}</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

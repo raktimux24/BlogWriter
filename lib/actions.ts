@@ -2,6 +2,14 @@
 
 export async function generateBlogPost(urls: string[]) {
   try {
+    // DEBUG: Create an object to track debug information
+    const debugInfo = {
+      responseFormat: 'unknown',
+      foundKeys: [] as string[],
+      processingSteps: [] as string[],
+      contentSource: 'unknown'
+    };
+    
     // Get webhook URL from environment variables
     const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || 
       "https://makeshifttdesign23.app.n8n.cloud/webhook/02fce493-0834-4ab8-a040-3d23871019a1"
@@ -13,6 +21,7 @@ export async function generateBlogPost(urls: string[]) {
     })
 
     console.log(`Processing ${urls.length} URLs for blog generation`);
+    debugInfo.processingSteps.push(`Processing ${urls.length} URLs`);
 
     // Create the payload in the required format
     const payload = {
@@ -34,7 +43,8 @@ export async function generateBlogPost(urls: string[]) {
       "executionMode": "production"
     }
 
-    console.log("Sending data to n8n webhook:", JSON.stringify(payload.body));
+    console.log("Sending data to n8n webhook:", JSON.stringify(payload.body).substring(0, 200) + "...");
+    debugInfo.processingSteps.push("Sending data to webhook");
 
     const response = await fetch(n8nWebhookUrl, {
       method: "POST",
@@ -46,12 +56,90 @@ export async function generateBlogPost(urls: string[]) {
     })
 
     // Log the response status
-    console.log(`Webhook response status: ${response.status} ${response.statusText}`)
+    console.log(`Webhook response status: ${response.status} ${response.statusText}`);
+    debugInfo.processingSteps.push(`Response status: ${response.status}`);
 
     // Get the raw response text
     const responseText = await response.text();
     console.log("Raw webhook response length:", responseText.length);
     console.log("Raw webhook response preview:", responseText.substring(0, 200) + (responseText.length > 200 ? '...' : ''));
+    
+    // Try to parse as JSON (safely)
+    try {
+      const jsonData = JSON.parse(responseText);
+      debugInfo.processingSteps.push("Successfully parsed JSON response");
+      
+      // Log the type of data and available keys for debugging
+      const jsonType = Array.isArray(jsonData) ? 'array' : (typeof jsonData === 'object' ? 'object' : typeof jsonData);
+      console.log(`Parsed JSON data type: ${jsonType}`);
+      debugInfo.responseFormat = jsonType;
+      
+      if (jsonType === 'object' && jsonData !== null) {
+        const keys = Object.keys(jsonData);
+        console.log(`JSON object keys: ${keys.join(', ')}`);
+        debugInfo.foundKeys = keys;
+
+        // Special handling for "Output X" keys which are common in n8n responses
+        const outputKeys = keys.filter(key => key.startsWith('Output '));
+        if (outputKeys.length > 0) {
+          debugInfo.responseFormat = 'n8n_output_keys';
+          debugInfo.processingSteps.push("Found n8n Output keys format");
+          
+          // Get the first output as the main content
+          const mainOutput = jsonData[outputKeys[0]];
+          // Clean any potential string escaping and ensure it's a string
+          const cleanContent = typeof mainOutput === 'string' 
+            ? mainOutput
+              .replace(/^#+\s*\n+/, '') // Remove any leading # followed by newlines
+              .replace(/^"/, '') // Remove leading quote
+              .replace(/"$/, '') // Remove trailing quote
+            : JSON.stringify(mainOutput); // Ensure objects are converted to strings
+          
+          // Get all outputs as alternative versions
+          const allOutputs = outputKeys.map(key => {
+            const output = jsonData[key];
+            return typeof output === 'string' 
+              ? output
+                .replace(/^#+\s*\n+/, '')
+                .replace(/^"/, '')
+                .replace(/"$/, '')
+              : JSON.stringify(output); // Ensure objects are converted to strings
+          });
+          
+          // Extract title from the first line if possible
+          let title = "Generated Blog Post";
+          if (typeof cleanContent === 'string' && cleanContent.startsWith('# ')) {
+            const titleMatch = cleanContent.match(/^# (.+)$/m);
+            if (titleMatch && titleMatch[1]) {
+              title = titleMatch[1].trim();
+            }
+          }
+          
+          return {
+            title: title,
+            content: cleanContent,
+            allOutputs: allOutputs,
+            rawResponse: responseText,
+            rawData: jsonData,
+            debugInfo: debugInfo,
+            metadata: {
+              requestTime: new Date().toISOString(),
+              source: "BlogWriter App",
+              webhookStatus: 'success',
+              webhookMessage: 'Successfully processed n8n output format',
+              responseStatus: response.status,
+              responseStatusText: response.statusText,
+              outputCount: allOutputs.length,
+              responseFormat: "n8n_output_format"
+            }
+          };
+        }
+      }
+    } catch (error) {
+      // Not valid JSON, continue with other extraction methods
+      console.error("Error parsing webhook response as JSON:", error);
+      debugInfo.processingSteps.push(`JSON parsing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
     
     // DEBUG: Log details around the problematic position 75
     if (responseText.length > 80) {
@@ -63,16 +151,27 @@ export async function generateBlogPost(urls: string[]) {
     
     // RADICAL APPROACH: Skip JSON parsing entirely and extract content directly
     console.log("Using direct content extraction to bypass JSON parsing issues");
+    debugInfo.processingSteps.push("Attempting direct content extraction");
+    
     const extractedContent = extractContentDirectly(responseText, urls);
     
     if (extractedContent) {
       console.log("Successfully extracted content directly");
+      debugInfo.responseFormat = 'direct_extraction';
+      debugInfo.contentSource = 'text_pattern_matching';
+      
+      // Double check that content is a string
+      const stringContent = typeof extractedContent.content === 'string' 
+        ? extractedContent.content 
+        : JSON.stringify(extractedContent.content);
+        
       return {
         title: extractedContent.title,
-        content: extractedContent.content,
-        allOutputs: [extractedContent.content],
+        content: stringContent,
+        allOutputs: [stringContent],
         rawResponse: responseText,
         rawData: { extractedBypass: true },
+        debugInfo: debugInfo, // Include debug info in the response
         metadata: {
           requestTime: new Date().toISOString(),
           source: "BlogWriter App",
@@ -91,16 +190,21 @@ export async function generateBlogPost(urls: string[]) {
         responseText.trim().startsWith('<html') || 
         (responseText.includes('<body') && responseText.includes('</body>'))) {
       console.log("Received HTML response instead of JSON");
+      debugInfo.responseFormat = 'html';
+      debugInfo.processingSteps.push("Detected HTML response");
       
       const extractedContent = extractContentFromHtml(responseText);
       if (extractedContent) {
         console.log("Extracted content from HTML response");
+        debugInfo.contentSource = 'html_extraction';
+        
         return {
           title: "Generated from HTML Response",
           content: extractedContent,
           allOutputs: [extractedContent],
           rawResponse: responseText,
           rawData: { type: "html_response", extractedContent },
+          debugInfo: debugInfo, // Include debug info in the response
           metadata: {
             requestTime: new Date().toISOString(),
             source: "BlogWriter App",
@@ -113,18 +217,23 @@ export async function generateBlogPost(urls: string[]) {
         };
       }
       
+      debugInfo.processingSteps.push("HTML extraction failed");
       return generateDefaultContent(
         urlObj, 
         response, 
-        "Webhook returned HTML instead of JSON. This could indicate an error or redirection."
+        "Webhook returned HTML instead of JSON. This could indicate an error or redirection.",
+        debugInfo
       );
     }
     
     // All attempts failed, return default content
+    debugInfo.processingSteps.push("All extraction methods failed");
+    
     return generateDefaultContent(
       urlObj, 
       response, 
-      "Could not extract meaningful content from the webhook response."
+      "Could not extract meaningful content from the webhook response.",
+      debugInfo
     );
   } catch (error: any) {
     console.error("Error in generateBlogPost:", error)
@@ -134,6 +243,7 @@ export async function generateBlogPost(urls: string[]) {
       title: "Error Generating Blog Post",
       content: "There was an error processing your request. Please try again.",
       error: error.message || "Unknown error",
+      debugInfo: { error: error.message || "Unknown error" },
       metadata: {
         requestTime: new Date().toISOString(),
         webhookStatus: 'error',
@@ -147,11 +257,118 @@ export async function generateBlogPost(urls: string[]) {
 function extractContentDirectly(responseText: string, urls: string[]): { title: string; content: string } | null {
   console.log("Attempting direct content extraction without JSON parsing");
   
+  // Deal with potential objects in the response
+  if (responseText.includes('[object Object]')) {
+    console.log("Found [object Object] in response text - this indicates improper string conversion");
+    // Try to parse the response again to extract actual data
+    try {
+      // Simple string patterns that might indicate n8n output format
+      if (responseText.includes('"Output 1":')) {
+        const match = responseText.match(/"Output 1"\s*:\s*([\s\S]+?)(?:,|\})/);
+        if (match && match[1]) {
+          let extractedContent = match[1].trim();
+          // Strip quotes if it's a string
+          if (extractedContent.startsWith('"') && extractedContent.endsWith('"')) {
+            extractedContent = extractedContent.substring(1, extractedContent.length - 1);
+          }
+          
+          extractedContent = extractedContent
+            .replace(/\\n/g, '\n')
+            .replace(/\\"/g, '"')
+            .replace(/\\\\/g, '\\');
+            
+          const title = "Neo-Brutalism Web Design Guide";
+          return { title, content: extractedContent };
+        }
+      }
+    } catch (e) {
+      console.error("Failed to extract from object notation:", e);
+    }
+  }
+  
+  // Look for n8n format pattern ("Output X": "content")
+  const n8nOutputPattern = /"Output \d+":\s*"([\s\S]+?)"\s*(?:}|,\s*")/;
+  const n8nMatch = responseText.match(n8nOutputPattern);
+  
+  if (n8nMatch && n8nMatch[1]) {
+    console.log("Found n8n output pattern through regex");
+    console.log("Extracted content length:", n8nMatch[1].length);
+    
+    // Clean up the extracted content
+    let extractedContent = n8nMatch[1]
+      .replace(/\\n/g, '\n')  // Convert \n to actual newlines
+      .replace(/\\"/g, '"')   // Convert \" to "
+      .replace(/\\\\/g, '\\') // Convert \\ to \
+      .trim();
+    
+    console.log("Cleaned content length:", extractedContent.length);
+    console.log("Content first 100 chars:", extractedContent.substring(0, 100));
+    console.log("Content last 100 chars:", extractedContent.substring(extractedContent.length - 100, extractedContent.length));
+    
+    // Extract title from the first markdown heading
+    let title = "Generated Blog Post";
+    const titleMatch = extractedContent.match(/^# (.+)$/m);
+    
+    if (titleMatch && titleMatch[1]) {
+      title = titleMatch[1].trim();
+    } else if (urls.some(url => url.includes('neobrutalism'))) {
+      title = "Neo-Brutalism Web Design Guide";
+    }
+    
+    return { title, content: extractedContent };
+  }
+  
+  // Try a more relaxed pattern if the first one fails
+  if (responseText.includes('"Output 1"') || responseText.includes('"output"')) {
+    console.log("Trying alternative n8n output extraction");
+    
+    // Try to extract content with various patterns
+    const alternativePatterns = [
+      /"Output 1"\s*:\s*"([\s\S]+)"\s*}\s*$/,  // Match to the end of the response
+      /"Output 1"\s*:\s*"(.+)"\s*}/,          // Basic match
+      /"output"\s*:\s*"([\s\S]+)"\s*}/,       // output key instead of Output 1
+      /"content"\s*:\s*"([\s\S]+)"\s*}/       // content key
+    ];
+    
+    for (const pattern of alternativePatterns) {
+      const match = responseText.match(pattern);
+      if (match && match[1]) {
+        console.log("Found content with alternative pattern");
+        
+        let extractedContent = match[1]
+          .replace(/\\n/g, '\n')
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, '\\')
+          .trim();
+          
+        console.log("Alternative extraction content length:", extractedContent.length);
+        
+        // Extract title or use default
+        let title = "Neo-Brutalism Web Design Guide";
+        if (urls.some(url => url.includes('neobrutalism'))) {
+          title = "Neo-Brutalism Web Design Guide";
+        }
+        
+        return { title, content: extractedContent };
+      }
+    }
+  }
+  
   // Strip any potential JSON wrappers, quotes, and escapes
   let processedText = responseText
     .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // Remove all control characters
     .replace(/^[^a-zA-Z#*\n]+/, '') // Remove any leading non-content characters (up to first letter, #, *, or newline)
     .replace(/[^a-zA-Z.!?)\n]+$/, ''); // Remove any trailing non-content characters
+  
+  // Handle malformed content with "Output X": prefix
+  if (processedText.includes('Output 1":')) {
+    console.log("Found malformed Output pattern");
+    // Try to extract the content after the prefix
+    const parts = processedText.split('Output 1":');
+    if (parts.length > 1) {
+      processedText = parts[1].trim();
+    }
+  }
   
   // Look for markdown-like content
   if (processedText.includes('#') || 
@@ -161,7 +378,7 @@ function extractContentDirectly(responseText: string, urls: string[]): { title: 
     console.log("Found potential markdown content");
     
     // Try to extract a title
-    let title = "Neo-Brutalism Design Guide";
+    let title = "Generated Blog Post";
     const titleMatch = processedText.match(/^#\s+([^\n]+)/) || 
                       processedText.match(/^##\s+([^\n]+)/) ||
                       processedText.match(/(\*\*|__)([^\*]+)(\*\*|__)/);
@@ -330,7 +547,12 @@ ${content}
 }
 
 // Helper function to generate default content
-function generateDefaultContent(urlObj: Record<string, string>, response: Response, message: string) {
+function generateDefaultContent(
+  urlObj: Record<string, string>, 
+  response: Response, 
+  message: string,
+  debugInfo: any
+) {
   console.log(`Generating default content. Reason: ${message}`);
   return {
     title: "Blog Post from Provided URLs",
@@ -343,6 +565,7 @@ function generateDefaultContent(urlObj: Record<string, string>, response: Respon
         ${Object.values(urlObj).map(url => `<li><a href="${url}">${url}</a></li>`).join('')}
       </ul>
     `,
+    debugInfo: debugInfo, // Include debug info in the response
     metadata: {
       requestTime: new Date().toISOString(),
       source: "BlogWriter App",

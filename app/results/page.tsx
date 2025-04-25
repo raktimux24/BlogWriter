@@ -28,6 +28,7 @@ interface BlogData {
     responseStatus?: number
     responseStatusText?: string
     outputCount?: number
+    responseFormat?: string
   }
   [key: string]: any
 }
@@ -148,7 +149,9 @@ export default function ResultsPage() {
               `Webhook Status: ${blogData.metadata.responseStatus} ${blogData.metadata.responseStatusText || ''}` : 
               "Webhook Status"
             }
-            message={webhookInfo.message} 
+            message={webhookInfo.message}
+            responseFormat={blogData.metadata?.responseFormat}
+            responseStatus={blogData.metadata?.responseStatus}
           />
         )}
         

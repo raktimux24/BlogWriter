@@ -1,32 +1,102 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
-import { Copy, Check, ChevronDown, ChevronUp, AlertCircle, Info } from "lucide-react"
+import { Copy, Check, ChevronDown, ChevronUp, AlertCircle, Info, EyeIcon, LayersIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { marked } from "marked"
+import sanitizeHtml from "sanitize-html"
 
 interface BlogContentProps {
   blogData: any
 }
+
+// Component for showing loading state when content is loading
+const ContentSkeleton = () => (
+  <div className="animate-pulse space-y-4">
+    <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-3/4"></div>
+    <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded"></div>
+    <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-5/6"></div>
+    <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/2"></div>
+  </div>
+);
 
 export default function BlogContent({ blogData }: BlogContentProps) {
   const [copied, setCopied] = useState(false)
   const [showAlternatives, setShowAlternatives] = useState(false)
   const [showRawData, setShowRawData] = useState(false)
   const [selectedVersion, setSelectedVersion] = useState(0)
+  const [showAllVersions, setShowAllVersions] = useState(false)
 
   // Debug: Log the received blogData to see its structure
   useEffect(() => {
     console.log("Blog data received:", blogData)
+    console.log("Content type:", typeof blogData.content);
+    
+    // Log the content length
+    if (blogData.content) {
+      if (typeof blogData.content === 'string') {
+        console.log("Content length:", blogData.content.length);
+        console.log("Content first 100 chars:", blogData.content.substring(0, 100));
+        console.log("Content last 100 chars:", 
+          blogData.content.substring(
+            Math.max(0, blogData.content.length - 100), 
+            blogData.content.length
+          )
+        );
+      } else if (typeof blogData.content === 'object') {
+        console.log("Content is an object with keys:", Object.keys(blogData.content));
+        console.log("Content structure:", JSON.stringify(blogData.content, null, 2));
+      } else {
+        console.log("Content preview:", blogData.content);
+      }
+    }
+    
+    // Deep inspection of allOutputs
+    if (blogData.allOutputs && Array.isArray(blogData.allOutputs)) {
+      console.log("allOutputs length:", blogData.allOutputs.length);
+      blogData.allOutputs.forEach((output: any, i: number) => {
+        console.log(`Output ${i} type:`, typeof output);
+        if (typeof output === 'string') {
+          console.log(`Output ${i} length:`, output.length);
+        } else if (typeof output === 'object') {
+          console.log(`Output ${i} structure:`, JSON.stringify(output, null, 2));
+        }
+      });
+    }
     
     // Additional debug - check the structure of rawResponse if it exists
     if (blogData.rawResponse) {
+      console.log("Raw response length:", blogData.rawResponse.length);
       try {
+        // First try to parse as normal JSON
         const parsedRaw = JSON.parse(blogData.rawResponse);
         console.log("Parsed raw response:", parsedRaw);
       } catch (e) {
         console.log("Couldn't parse raw response as JSON");
+        
+        // Try to extract content from n8n format if normal parsing fails
+        try {
+          // Look for n8n pattern: "Output X": "content"
+          const outputMatch = blogData.rawResponse.match(/"Output \d+":\s*"([\s\S]+?)(?:"\s*}|\s*,\s*")/);
+          if (outputMatch && outputMatch[1]) {
+            console.log("Found n8n output pattern in raw response");
+            const extractedContent = outputMatch[1]
+              .replace(/\\n/g, '\n')
+              .replace(/\\"/g, '"')
+              .replace(/\\\\/g, '\\');
+            console.log("Extracted content length:", extractedContent.length);
+            console.log("Extracted content first 100 chars:", extractedContent.substring(0, 100) + "...");
+            console.log("Extracted content last 100 chars:", 
+              extractedContent.substring(
+                Math.max(0, extractedContent.length - 100), 
+                extractedContent.length
+              )
+            );
+          }
+        } catch (extractError) {
+          console.log("Failed to extract content from non-JSON response");
+        }
       }
     }
   }, [blogData])
@@ -34,15 +104,64 @@ export default function BlogContent({ blogData }: BlogContentProps) {
   // Extract title, content and any alternative outputs
   const title = blogData.title || "Generated Blog Post"
   
-  // Make sure we have valid content
-  const content = typeof blogData.content === 'string' ? blogData.content : '';
+  // Make sure we have valid content - force string conversion if needed
+  let content = '';
+  if (typeof blogData.content === 'string') {
+    content = blogData.content;
+  } else if (blogData.content) {
+    // Convert any non-string content to a formatted string
+    content = typeof blogData.content === 'object' 
+      ? JSON.stringify(blogData.content, null, 2)
+      : String(blogData.content);
+    console.log("Converted non-string content to string:", content.substring(0, 100));
+  }
   
-  // Properly extract alternativeOutputs, ensuring it's an array
+  // Fix malformed content with "Output 1"
+  if (content.includes('Output 1":')) {
+    console.log("Fixing malformed content with Output 1 prefix");
+    const parts = content.split('Output 1":');
+    if (parts.length > 1) {
+      content = parts[1].trim()
+        .replace(/^"/, '') // Remove leading quote
+        .replace(/"$/, '') // Remove trailing quote
+        .replace(/\\n/g, '\n')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\');
+    }
+  }
+  
+  // Properly extract alternativeOutputs, ensuring it's an array of strings
   let alternativeOutputs: string[] = []
   if (blogData.allOutputs && Array.isArray(blogData.allOutputs)) {
-    alternativeOutputs = blogData.allOutputs.filter(
-      (output: any) => typeof output === 'string' && output.trim() !== ''
-    );
+    alternativeOutputs = blogData.allOutputs
+      // Convert each item to a string if it's not already
+      .map((output: any) => {
+        if (typeof output === 'string') {
+          return output;
+        } else if (output) {
+          return typeof output === 'object' 
+            ? JSON.stringify(output, null, 2)
+            : String(output);
+        }
+        return '';
+      })
+      // Filter out empty strings
+      .filter((output: string) => output.trim() !== '')
+      // Clean up each alternative output if needed
+      .map((output: string) => {
+        if (output.includes('Output 1":')) {
+          const parts = output.split('Output 1":');
+          if (parts.length > 1) {
+            return parts[1].trim()
+              .replace(/^"/, '')
+              .replace(/"$/, '')
+              .replace(/\\n/g, '\n')
+              .replace(/\\"/g, '"')
+              .replace(/\\\\/g, '\\');
+          }
+        }
+        return output;
+      });
   }
   
   // Determine if we have multiple versions
@@ -53,127 +172,260 @@ export default function BlogContent({ blogData }: BlogContentProps) {
     ? content 
     : (alternativeOutputs[selectedVersion - 1] || content)
   
-  // Determine if content is HTML, markdown, or plain text
-  const isHtml = typeof selectedContent === 'string' && 
-    selectedContent.trim().startsWith('<') && 
-    selectedContent.includes('</');
+  // Debug log to check the content structure
+  console.log("Content type:", typeof selectedContent);
+  console.log("Content preview:", typeof selectedContent === 'string' 
+    ? selectedContent.substring(0, 100) 
+    : JSON.stringify(selectedContent).substring(0, 100));
+  
+  // Ensure content is a string
+  let contentString = typeof selectedContent === 'string' 
+    ? selectedContent 
+    : JSON.stringify(selectedContent);
     
-  const isMarkdown = !isHtml && typeof selectedContent === 'string' && (
-    selectedContent.includes('# ') || 
-    selectedContent.includes('## ') || 
-    selectedContent.includes('**') || 
-    selectedContent.includes('__') ||
-    selectedContent.includes('- ') ||
-    selectedContent.includes('1. ') ||
-    selectedContent.includes('\n\n') ||  // Multiple paragraphs
-    selectedContent.includes('*') ||     // Italics or lists
-    selectedContent.includes('[') && selectedContent.includes('](') // Links
+  // If we have multiple outputs, display them separated
+  const allContent = hasAlternatives && alternativeOutputs.length > 0 ? 
+    [content, ...alternativeOutputs.map(output => typeof output === 'string' ? output : JSON.stringify(output))] : 
+    [contentString];
+  
+  // Check if content begins with ** which indicates bold instead of proper markdown headings
+  if (contentString.trim().startsWith('**') && !contentString.includes('# ')) {
+    console.log("Content starts with bold (**) rather than proper headings, applying fix");
+    
+    // Try to extract a title from the first bold section
+    const boldTitleMatch = contentString.match(/^\*\*([^*]+)\*\*/);
+    if (boldTitleMatch && boldTitleMatch[1]) {
+      const extractedTitle = boldTitleMatch[1].trim();
+      // Convert the first bold section to a heading and add proper markdown structure
+      contentString = contentString.replace(/^\*\*([^*]+)\*\*/, `# ${boldTitleMatch[1]}`);
+      console.log("Fixed content by converting first bold to heading");
+    }
+  }
+  
+  // Determine if content is HTML, markdown, or plain text
+  const isHtml = typeof contentString === 'string' && 
+    contentString.trim().startsWith('<') && 
+    contentString.includes('</');
+    
+  const isMarkdown = !isHtml && typeof contentString === 'string' && (
+    contentString.includes('# ') || 
+    contentString.includes('## ') || 
+    contentString.includes('**') || 
+    contentString.includes('__') ||
+    contentString.includes('- ') ||
+    contentString.includes('1. ') ||
+    contentString.includes('\n\n') ||  // Multiple paragraphs
+    contentString.includes('*') ||     // Italics or lists
+    contentString.includes('[') && contentString.includes('](') // Links
   );
 
   // Format the content appropriately based on type
-  const formatContent = (contentStr: string) => {
-    if (!contentStr || typeof contentStr !== 'string') {
-      return <p className="text-red-500">No content to display</p>;
+  const formatContent = (
+    content: string,
+    showSeparator: boolean = false
+  ): React.ReactNode => {
+    if (!content) return null;
+    
+    console.log("Formatting content of type:", typeof content);
+    console.log("Content preview:", content.substring(0, 50));
+    
+    let formattedContent: React.ReactNode;
+    
+    try {
+      // For HTML content
+      if (isHtml) {
+        // Apply Tailwind classes to HTML elements
+        let formattedHtml = content
+          // Style headings
+          .replace(/<h1/g, '<h1 class="text-3xl font-bold mb-6 mt-8"')
+          .replace(/<h2/g, '<h2 class="text-2xl font-semibold mb-4 mt-6"')
+          .replace(/<h3/g, '<h3 class="text-xl font-medium mb-3 mt-5"')
+          .replace(/<h4/g, '<h4 class="text-lg font-medium mb-2 mt-4"')
+          
+          // Style paragraphs
+          .replace(/<p>/g, '<p class="mb-4 text-base leading-relaxed">')
+          
+          // Style lists
+          .replace(/<ul>/g, '<ul class="mb-4 ml-5 list-disc">')
+          .replace(/<ol>/g, '<ol class="mb-4 ml-5 list-decimal">')
+          .replace(/<li>/g, '<li class="mb-2">')
+          
+          // Style blockquotes
+          .replace(/<blockquote>/g, '<blockquote class="pl-4 border-l-4 border-gray-300 italic my-4">')
+          
+          // Style code blocks
+          .replace(/<pre>/g, '<pre class="bg-gray-100 dark:bg-gray-800 p-4 rounded overflow-x-auto mb-4">')
+          .replace(/<code>/g, '<code class="font-mono text-sm bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">')
+          
+          // Style links
+          .replace(/<a /g, '<a class="text-blue-600 hover:underline dark:text-blue-400" ');
+        
+        formattedContent = <div className="space-y-4" dangerouslySetInnerHTML={{ __html: sanitizeHtml(formattedHtml, {
+          allowedTags: sanitizeHtml.defaults.allowedTags.concat(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']),
+          allowedAttributes: {
+            ...sanitizeHtml.defaults.allowedAttributes,
+            '*': ['class']
+          }
+        }) }} />;
+      }
+      
+      // For Markdown content
+      else if (isMarkdown) {
+        console.log("Formatting as markdown, content length:", content.length);
+        
+        // Use a more basic approach to avoid TypeScript issues with marked.js
+        marked.setOptions({
+          gfm: true,
+          breaks: true,
+          pedantic: false,
+          silent: false,
+        });
+        
+        try {
+          // Parse the markdown to HTML first
+          let htmlContent = marked.parse(content) as string;
+          console.log("Generated HTML length:", htmlContent.length);
+          
+          // Then apply Tailwind classes via string replacement, similar to HTML processing
+          htmlContent = htmlContent
+            // Style headings
+            .replace(/<h1/g, '<h1 class="text-3xl font-bold mb-6 mt-8"')
+            .replace(/<h2/g, '<h2 class="text-2xl font-semibold mb-4 mt-6"')
+            .replace(/<h3/g, '<h3 class="text-xl font-medium mb-3 mt-5"')
+            .replace(/<h4/g, '<h4 class="text-lg font-medium mb-2 mt-4"')
+            
+            // Style paragraphs
+            .replace(/<p>/g, '<p class="mb-4 text-base leading-relaxed">')
+            
+            // Style lists
+            .replace(/<ul>/g, '<ul class="mb-4 ml-5 list-disc">')
+            .replace(/<ol>/g, '<ol class="mb-4 ml-5 list-decimal">')
+            .replace(/<li>/g, '<li class="mb-2">')
+            
+            // Style blockquotes
+            .replace(/<blockquote>/g, '<blockquote class="pl-4 border-l-4 border-gray-300 italic my-4">')
+            
+            // Style code blocks
+            .replace(/<pre><code>/g, '<pre class="bg-gray-100 dark:bg-gray-800 p-4 rounded overflow-x-auto mb-4"><code class="font-mono text-sm">')
+            .replace(/<code>/g, '<code class="font-mono text-sm bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">')
+            
+            // Style links
+            .replace(/<a /g, '<a class="text-blue-600 hover:underline dark:text-blue-400" ');
+          
+          const sanitized = sanitizeHtml(htmlContent, {
+            allowedTags: sanitizeHtml.defaults.allowedTags.concat(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']),
+            allowedAttributes: {
+              ...sanitizeHtml.defaults.allowedAttributes,
+              '*': ['class']
+            }
+          });
+          
+          console.log("Sanitized HTML length:", sanitized.length);
+          
+          formattedContent = <div className="space-y-4" dangerouslySetInnerHTML={{ __html: sanitized }} />;
+        } catch (markdownError) {
+          console.error("Error parsing markdown:", markdownError);
+          
+          // If markdown parsing fails, fall back to basic formatting
+          formattedContent = (
+            <div className="space-y-4">
+              {content.split('\n\n').map((paragraph, index) => (
+                paragraph.trim() ? (
+                  <p key={index} className="mb-4 text-base leading-relaxed">
+                    {paragraph.split('\n').map((line, i) => (
+                      <React.Fragment key={i}>
+                        {line}
+                        {i < paragraph.split('\n').length - 1 && <br />}
+                      </React.Fragment>
+                    ))}
+                  </p>
+                ) : <div key={index} className="h-4" />
+              ))}
+            </div>
+          );
+        }
+      }
+      
+      // For plain text content
+      else {
+        // Check if content might be JSON (starts with { or [)
+        if ((content.trim().startsWith('{') && content.trim().endsWith('}')) || 
+            (content.trim().startsWith('[') && content.trim().endsWith(']'))) {
+          console.log("Formatting potential JSON content");
+          try {
+            // Try to parse and pretty print if it's valid JSON
+            const parsedJSON = JSON.parse(content);
+            formattedContent = (
+              <pre className="whitespace-pre-wrap break-words bg-slate-50 dark:bg-slate-900 p-4 rounded-md font-mono text-sm">
+                {JSON.stringify(parsedJSON, null, 2)}
+              </pre>
+            );
+          } catch (e) {
+            // Not valid JSON, continue with normal text formatting
+            console.log("Thought content was JSON but failed to parse");
+            formattedContent = null; // Will be set in the next section
+          }
+        }
+        
+        // If no special format was applied yet
+        if (!formattedContent) {
+          formattedContent = (
+            <div className="space-y-4">
+              {content.split('\n\n').map((paragraph, index) => (
+                paragraph.trim() ? (
+                  <p key={index} className="mb-4 text-base leading-relaxed">
+                    {paragraph.split('\n').map((line, i) => (
+                      <React.Fragment key={i}>
+                        {line}
+                        {i < paragraph.split('\n').length - 1 && <br />}
+                      </React.Fragment>
+                    ))}
+                  </p>
+                ) : <div key={index} className="h-4" />
+              ))}
+            </div>
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Error formatting content:", error);
+      
+      // Fallback to simple pre-formatted text
+      formattedContent = (
+        <pre className="whitespace-pre-wrap break-words bg-gray-50 dark:bg-gray-900 p-4 rounded-md">
+          {content}
+        </pre>
+      );
     }
     
-    if (isHtml) {
-      // If it's HTML, render it directly
+    // Add a separator if requested
+    if (showSeparator) {
       return (
-        <div 
-          dangerouslySetInnerHTML={{ __html: contentStr }} 
-          className="prose-headings:font-bold prose-headings:mb-4 prose-headings:mt-6 prose-p:mb-4 prose-p:leading-relaxed"
-        />
+        <>
+          {formattedContent}
+          <div className="my-10 border-t-2 border-dashed border-slate-300 dark:border-slate-700 relative">
+            <span className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-950 px-4 text-xs text-slate-500 dark:text-slate-400">
+              End of Response
+            </span>
+          </div>
+        </>
       );
-    } else if (isMarkdown) {
-      // If it's markdown, convert to HTML first
-      try {
-        const markedOptions = {
-          breaks: true,        // Enable line breaks
-          gfm: true,           // Enable GitHub Flavored Markdown
-          headerIds: true,     // Enable header IDs for better navigation
-          mangle: false        // Don't mangle email addresses
-        };
-        const htmlContent = marked.parse(contentStr, markedOptions);
-        return (
-          <div 
-            dangerouslySetInnerHTML={{ __html: htmlContent }} 
-            className="markdown-content prose-headings:font-bold prose-headings:mb-4 prose-headings:mt-6 prose-p:mb-4 prose-p:leading-relaxed"
-            style={{
-              lineHeight: 1.7,
-              fontSize: '1.1rem',
-            }}
-          />
-        );
-      } catch (error) {
-        console.error("Error parsing markdown:", error);
-        return formatPlainText(contentStr);
-      }
-    } else {
-      // If it's plain text, format with paragraph breaks
-      return formatPlainText(contentStr);
     }
+    
+    return formattedContent;
   };
   
-  // Format plain text with paragraph breaks
-  const formatPlainText = (text: string) => {
-    if (!text) return <p>No content to display</p>;
-    
-    // Split text into sections (paragraphs or potential headings)
-    const sections = text.split(/\n\n+/);
-    
-    return (
-      <div className="flex flex-col gap-4" style={{ lineHeight: 1.7 }}>
-        {sections.map((section, index) => {
-          // Check if this might be a heading (all caps or starts with capital and short)
-          const isHeading = 
-            (section.toUpperCase() === section && section.length < 80) || 
-            (/^[A-Z][^.!?]*$/.test(section) && section.length < 60);
-          
-          // Replace single line breaks with <br> tags
-          const formattedContent = section
-            .split('\n')
-            .map((line, i) => (
-              <React.Fragment key={i}>
-                {i > 0 && <br />}
-                {line}
-              </React.Fragment>
-            ));
-          
-          if (isHeading) {
-            return (
-              <h2 
-                key={index} 
-                className="text-xl font-bold mt-6 mb-2 border-b border-gray-200 pb-1"
-              >
-                {formattedContent}
-              </h2>
-            );
-          }
-          
-          return (
-            <p 
-              key={index} 
-              className="text-base md:text-lg font-light leading-relaxed"
-            >
-              {formattedContent}
-            </p>
-          );
-        })}
-      </div>
-    );
-  };
-
   // Format the selected content for display
-  const formattedContent = formatContent(selectedContent);
+  const formattedContent = formatContent(contentString);
 
   const copyToClipboard = () => {
     // For HTML or markdown content, strip tags for clipboard copy
     let textToCopy = title + "\n\n";
     
-    if (isHtml && typeof selectedContent === 'string') {
-      textToCopy += selectedContent.replace(/<[^>]*>/g, '');
-    } else if (selectedContent) {
-      textToCopy += selectedContent;
+    if (isHtml && typeof contentString === 'string') {
+      textToCopy += contentString.replace(/<[^>]*>/g, '');
+    } else if (contentString) {
+      textToCopy += contentString;
     }
     
     navigator.clipboard.writeText(textToCopy)
@@ -200,6 +452,9 @@ export default function BlogContent({ blogData }: BlogContentProps) {
     
   // Check if there's a webhookResponse field - this would be the raw response
   const hasRawResponse = blogData.rawResponse || blogData.rawData;
+  
+  // Check if we have debug info from the server
+  const hasDebugInfo = blogData.debugInfo && typeof blogData.debugInfo === 'object';
 
   return (
     <div className="space-y-6 fade-in">
@@ -256,15 +511,78 @@ export default function BlogContent({ blogData }: BlogContentProps) {
           {blogData.metadata.outputCount > 1 && (
             <p>Multiple versions available ({blogData.metadata.outputCount})</p>
           )}
+          {blogData.metadata.responseFormat && (
+            <p>Response format: {blogData.metadata.responseFormat}</p>
+          )}
         </div>
       )}
       
       {showRawData && (
         <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 dark:bg-slate-900/30 dark:border-slate-800 my-4 overflow-hidden">
           <div className="font-mono text-xs overflow-auto max-h-96">
+            {hasDebugInfo && (
+              <>
+                <h4 className="font-medium mb-2 text-blue-600 dark:text-blue-400">Debug Information:</h4>
+                <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded mb-4">
+                  {blogData.debugInfo.responseFormat && (
+                    <p><span className="font-semibold">Response Format:</span> {blogData.debugInfo.responseFormat}</p>
+                  )}
+                  {blogData.debugInfo.contentSource && (
+                    <p><span className="font-semibold">Content Source:</span> {blogData.debugInfo.contentSource}</p>
+                  )}
+                  {blogData.debugInfo.foundKeys && blogData.debugInfo.foundKeys.length > 0 && (
+                    <p><span className="font-semibold">Found Keys:</span> {blogData.debugInfo.foundKeys.join(', ')}</p>
+                  )}
+                  {blogData.debugInfo.processingSteps && blogData.debugInfo.processingSteps.length > 0 && (
+                    <div className="mt-2">
+                      <p className="font-semibold">Processing Steps:</p>
+                      <ol className="list-decimal pl-5 mt-1">
+                        {blogData.debugInfo.processingSteps.map((step: string, index: number) => (
+                          <li key={index} className="text-xs">{step}</li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+            
             <h4 className="font-medium mb-2">Raw Response:</h4>
             {blogData.rawResponse ? (
-              <pre className="whitespace-pre-wrap break-words">{blogData.rawResponse}</pre>
+              <>
+                <pre className="whitespace-pre-wrap break-words">{blogData.rawResponse}</pre>
+                
+                {/* Try to show a cleaned-up version if it contains "Output X" format */}
+                {blogData.rawResponse.includes('"Output') && (
+                  <div className="mt-4 border-t pt-2 border-slate-300 dark:border-slate-700">
+                    <h5 className="text-xs font-medium mb-2 text-emerald-700 dark:text-emerald-500">
+                      Cleaned Output Content:
+                    </h5>
+                    <div className="bg-emerald-50 dark:bg-emerald-950/30 p-2 rounded">
+                      {(() => {
+                        try {
+                          // Look for n8n output pattern and extract
+                          const match = blogData.rawResponse.match(/"Output \d+":\s*"([\s\S]+?)(?:"\s*}|\s*,\s*")/);
+                          if (match && match[1]) {
+                            const cleaned = match[1]
+                              .replace(/\\n/g, '\n')
+                              .replace(/\\"/g, '"')
+                              .replace(/\\\\/g, '\\');
+                            return (
+                              <pre className="whitespace-pre-wrap break-words text-xs">
+                                {cleaned}
+                              </pre>
+                            );
+                          }
+                          return <p className="text-xs">Could not extract clean content</p>;
+                        } catch (e) {
+                          return <p className="text-xs">Error processing output format</p>;
+                        }
+                      })()}
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
               <p>No raw response data available</p>
             )}
@@ -314,44 +632,62 @@ export default function BlogContent({ blogData }: BlogContentProps) {
         </div>
       )}
 
-      <div className="prose prose-emerald prose-h1:text-2xl prose-h1:font-bold prose-h1:mb-6 prose-h2:text-xl prose-h2:font-semibold prose-h2:mb-4 prose-h2:mt-8 prose-h3:text-lg prose-h3:font-medium prose-h3:mb-3 prose-h3:mt-6 prose-p:mb-4 prose-p:leading-relaxed prose-p:text-base prose-p:md:text-lg prose-li:mb-2 prose-li:ml-4 dark:prose-invert max-w-none stagger-fade-in markdown-content">
-        {formattedContent}
+      <div className="pt-4">
+        {selectedContent ? (
+          <div className="mb-6">
+            {showAllVersions ? (
+              <div className="space-y-12">
+                {allContent.map((contentItem, index) => (
+                  <div key={index}>
+                    {index > 0 && (
+                      <div className="mb-6 mt-6 flex items-center">
+                        <div className="flex-grow border-t border-slate-300 dark:border-slate-700"></div>
+                        <div className="mx-4 px-4 py-1 bg-slate-100 dark:bg-slate-800 rounded-full text-sm font-medium">
+                          Version {index + 1}
+                        </div>
+                        <div className="flex-grow border-t border-slate-300 dark:border-slate-700"></div>
+                      </div>
+                    )}
+                    <div className="space-y-4">
+                      {formatContent(
+                        typeof contentItem === 'string' ? contentItem : JSON.stringify(contentItem),
+                        index < allContent.length - 1 // Add separator for all but the last item
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {formatContent(typeof selectedContent === 'string' ? selectedContent : JSON.stringify(selectedContent))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <ContentSkeleton />
+        )}
       </div>
       
-      {hasAlternatives && (
-        <div className="border-t border-slate-200 dark:border-slate-800 pt-4 mt-8">
+      {allContent.length > 1 && (
+        <div className="mb-4 flex justify-end">
           <Button
-            variant="ghost"
-            onClick={() => setShowAlternatives(!showAlternatives)}
-            className="flex items-center gap-2 w-full justify-between"
+            variant="outline"
+            size="sm"
+            onClick={() => setShowAllVersions(!showAllVersions)}
+            className="text-xs flex items-center gap-1"
           >
-            <span>All Versions ({alternativeOutputs.length + 1})</span>
-            {showAlternatives ? (
-              <ChevronUp className="h-4 w-4" />
+            {showAllVersions ? (
+              <>
+                <EyeIcon className="h-3 w-3" />
+                Show Selected Version
+              </>
             ) : (
-              <ChevronDown className="h-4 w-4" />
+              <>
+                <LayersIcon className="h-3 w-3" />
+                Show All Versions
+              </>
             )}
           </Button>
-          
-          {showAlternatives && (
-            <div className="mt-4 space-y-8">
-              <div className="border p-4 rounded-md">
-                <h3 className="font-medium mb-2">Main Version</h3>
-                <div className="prose prose-sm prose-emerald dark:prose-invert max-w-none">
-                  {formatContent(content)}
-                </div>
-              </div>
-              
-              {alternativeOutputs.map((output: string, index: number) => (
-                <div key={index} className="border p-4 rounded-md">
-                  <h3 className="font-medium mb-2">Version {index + 2}</h3>
-                  <div className="prose prose-sm prose-emerald dark:prose-invert max-w-none">
-                    {formatContent(output)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
     </div>
