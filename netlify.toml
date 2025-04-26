@@ -3,12 +3,31 @@
   publish = ".next"
   functions = "netlify/functions"
 
+# Fix for Next.js routes
+[[redirects]]
+  from = "/_next/*"
+  to = "/_next/:splat"
+  status = 200
+
+# Fix for API routes
+[[redirects]]
+  from = "/api/*"
+  to = "/api/:splat"
+  status = 200
+
+# Fix for Netlify Functions
+[[redirects]]
+  from = "/.netlify/functions/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+  force = true
+
+# Finally, serve index for all other paths
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
   force = false
-  conditions = {Role = ["anonymous"]}
 
 [functions]
   node_bundler = "esbuild"

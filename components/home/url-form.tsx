@@ -89,17 +89,43 @@ export default function UrlForm() {
       // Log that we're sending data to n8n webhook
       console.log("Sending URLs to n8n webhook:", validUrls)
       
-      // Use the Netlify function instead of the server action
-      const response = await fetch('/.netlify/functions/generate-blog', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ urls: validUrls }),
-      });
+      // Try the primary function endpoint first
+      let response;
+      let functionError: Error | null = null;
       
-      if (!response.ok) {
-        throw new Error(`Error from Netlify function: ${response.status} ${response.statusText}`);
+      try {
+        // Try ES module version first
+        response = await fetch('/.netlify/functions/generate-blog', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ urls: validUrls }),
+        });
+      } catch (err: any) {
+        console.warn("Error calling primary function, trying fallback:", err);
+        functionError = err instanceof Error ? err : new Error(String(err));
+        
+        // Try CommonJS version as fallback
+        try {
+          response = await fetch('/.netlify/functions/generate-blog-cjs', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ urls: validUrls }),
+          });
+          functionError = null;
+        } catch (fallbackErr: any) {
+          console.error("Error calling fallback function too:", fallbackErr);
+          throw new Error(`Failed to call Netlify functions: ${
+            fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)
+          }. Original error: ${functionError?.message || 'Unknown error'}`);
+        }
+      }
+      
+      if (!response || !response.ok) {
+        throw new Error(`Error from Netlify function: ${response?.status || 'No response'} ${response?.statusText || ''}`);
       }
       
       const blogData = await response.json();
@@ -112,9 +138,11 @@ export default function UrlForm() {
 
       // Navigate to results page
       router.push("/results")
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error generating blog post:", err)
-      setError("Failed to generate blog post. The webhook request failed or returned an error.")
+      setError(`Failed to generate blog post: ${
+        err instanceof Error ? err.message : String(err)
+      }`)
       setWebhookStatus('error')
       setIsLoading(false)
     }
