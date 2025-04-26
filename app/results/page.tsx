@@ -19,6 +19,16 @@ interface BlogData {
   rawData?: any
   allOutputs?: string[]
   error?: string
+  success?: boolean
+  data?: {
+    title?: string
+    content?: string
+    rawResponse?: string
+    rawData?: any
+    allOutputs?: string[]
+    metadata?: any
+    [key: string]: any
+  }
   metadata?: {
     requestTime?: string
     requestType?: string
@@ -52,23 +62,43 @@ export default function ResultsPage() {
       try {
         const parsedData = JSON.parse(storedData)
         console.log("Parsed blog data:", parsedData)
-        setBlogData(parsedData)
+        
+        // Handle the new Netlify function response format
+        let processedData = parsedData
+        
+        // Check if this is a response from Netlify function with data property
+        if (parsedData.success && parsedData.data) {
+          // Extract the nested data
+          processedData = parsedData.data
+          
+          // If data contains metadata but parsedData also has metadata, merge them
+          if (parsedData.metadata && processedData.metadata) {
+            processedData.metadata = {
+              ...processedData.metadata,
+              ...parsedData.metadata
+            }
+          } else if (parsedData.metadata) {
+            processedData.metadata = parsedData.metadata
+          }
+        }
+        
+        setBlogData(processedData)
         
         // Set webhook info if available
-        if (parsedData.metadata) {
+        if (processedData.metadata) {
           setWebhookInfo({
-            status: parsedData.metadata.webhookStatus || 'success',
-            message: parsedData.metadata.webhookMessage || 
+            status: processedData.metadata.webhookStatus || 'success',
+            message: processedData.metadata.webhookMessage || 
               `Blog post generated via n8n webhook at ${
-                new Date(parsedData.metadata.requestTime || Date.now()).toLocaleTimeString()
+                new Date(processedData.metadata.requestTime || Date.now()).toLocaleTimeString()
               }`
           })
-        } else if (parsedData.error) {
+        } else if (processedData.error) {
           setWebhookInfo({
             status: 'error',
-            message: `Error: ${parsedData.error}`
+            message: `Error: ${processedData.error}`
           })
-          setError(parsedData.error)
+          setError(processedData.error)
         } else {
           setWebhookInfo({
             status: 'info',
@@ -134,8 +164,9 @@ export default function ResultsPage() {
   }
 
   // Check if we have content
-  const hasContent = !!blogData.content && typeof blogData.content === 'string' && blogData.content.trim() !== ''
-  const hasEmptyContentMessage = !hasContent && blogData.content !== undefined
+  const hasContent = (!!blogData.content && typeof blogData.content === 'string' && blogData.content.trim() !== '') ||
+                    (blogData.data && !!blogData.data.content && typeof blogData.data.content === 'string' && blogData.data.content.trim() !== '')
+  const hasEmptyContentMessage = !hasContent && (blogData.content !== undefined || (blogData.data && blogData.data.content !== undefined))
 
   return (
     <PageContainer>

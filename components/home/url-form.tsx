@@ -89,14 +89,26 @@ export default function UrlForm() {
       // Log that we're sending data to n8n webhook
       console.log("Sending URLs to n8n webhook:", validUrls)
       
-      // Send data to n8n webhook via server action
-      const blogData = await generateBlogPost(validUrls)
+      // Use the Netlify function instead of the server action
+      const response = await fetch('/.netlify/functions/generate-blog', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ urls: validUrls }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Error from Netlify function: ${response.status} ${response.statusText}`);
+      }
+      
+      const blogData = await response.json();
       
       // Mark webhook as successfully triggered
       setWebhookStatus('success')
 
       // Store the blog data in sessionStorage
-      sessionStorage.setItem("blogData", JSON.stringify(blogData))
+      sessionStorage.setItem("blogData", JSON.stringify(blogData.data || blogData))
 
       // Navigate to results page
       router.push("/results")

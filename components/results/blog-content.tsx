@@ -31,31 +31,35 @@ export default function BlogContent({ blogData }: BlogContentProps) {
   // Debug: Log the received blogData to see its structure
   useEffect(() => {
     console.log("Blog data received:", blogData)
-    console.log("Content type:", typeof blogData.content);
+    
+    // Handle both old format and new Netlify function format
+    const contentData = blogData.data ? blogData.data : blogData;
+    
+    console.log("Content type:", typeof contentData.content);
     
     // Log the content length
-    if (blogData.content) {
-      if (typeof blogData.content === 'string') {
-        console.log("Content length:", blogData.content.length);
-        console.log("Content first 100 chars:", blogData.content.substring(0, 100));
+    if (contentData.content) {
+      if (typeof contentData.content === 'string') {
+        console.log("Content length:", contentData.content.length);
+        console.log("Content first 100 chars:", contentData.content.substring(0, 100));
         console.log("Content last 100 chars:", 
-          blogData.content.substring(
-            Math.max(0, blogData.content.length - 100), 
-            blogData.content.length
+          contentData.content.substring(
+            Math.max(0, contentData.content.length - 100), 
+            contentData.content.length
           )
         );
-      } else if (typeof blogData.content === 'object') {
-        console.log("Content is an object with keys:", Object.keys(blogData.content));
-        console.log("Content structure:", JSON.stringify(blogData.content, null, 2));
+      } else if (typeof contentData.content === 'object') {
+        console.log("Content is an object with keys:", Object.keys(contentData.content));
+        console.log("Content structure:", JSON.stringify(contentData.content, null, 2));
       } else {
-        console.log("Content preview:", blogData.content);
+        console.log("Content preview:", contentData.content);
       }
     }
     
     // Deep inspection of allOutputs
-    if (blogData.allOutputs && Array.isArray(blogData.allOutputs)) {
-      console.log("allOutputs length:", blogData.allOutputs.length);
-      blogData.allOutputs.forEach((output: any, i: number) => {
+    if (contentData.allOutputs && Array.isArray(contentData.allOutputs)) {
+      console.log("allOutputs length:", contentData.allOutputs.length);
+      contentData.allOutputs.forEach((output: any, i: number) => {
         console.log(`Output ${i} type:`, typeof output);
         if (typeof output === 'string') {
           console.log(`Output ${i} length:`, output.length);
@@ -66,11 +70,11 @@ export default function BlogContent({ blogData }: BlogContentProps) {
     }
     
     // Additional debug - check the structure of rawResponse if it exists
-    if (blogData.rawResponse) {
-      console.log("Raw response length:", blogData.rawResponse.length);
+    if (contentData.rawResponse) {
+      console.log("Raw response length:", contentData.rawResponse.length);
       try {
         // First try to parse as normal JSON
-        const parsedRaw = JSON.parse(blogData.rawResponse);
+        const parsedRaw = JSON.parse(contentData.rawResponse);
         console.log("Parsed raw response:", parsedRaw);
       } catch (e) {
         console.log("Couldn't parse raw response as JSON");
@@ -78,7 +82,7 @@ export default function BlogContent({ blogData }: BlogContentProps) {
         // Try to extract content from n8n format if normal parsing fails
         try {
           // Look for n8n pattern: "Output X": "content"
-          const outputMatch = blogData.rawResponse.match(/"Output \d+":\s*"([\s\S]+?)(?:"\s*}|\s*,\s*")/);
+          const outputMatch = contentData.rawResponse.match(/"Output \d+":\s*"([\s\S]+?)(?:"\s*}|\s*,\s*")/);
           if (outputMatch && outputMatch[1]) {
             console.log("Found n8n output pattern in raw response");
             const extractedContent = outputMatch[1]
@@ -102,17 +106,19 @@ export default function BlogContent({ blogData }: BlogContentProps) {
   }, [blogData])
 
   // Extract title, content and any alternative outputs
-  const title = blogData.title || "Generated Blog Post"
+  // Handle both old format and new Netlify function format
+  const contentData = blogData.data ? blogData.data : blogData;
+  const title = contentData.title || "Generated Blog Post"
   
   // Make sure we have valid content - force string conversion if needed
   let content = '';
-  if (typeof blogData.content === 'string') {
-    content = blogData.content;
-  } else if (blogData.content) {
+  if (typeof contentData.content === 'string') {
+    content = contentData.content;
+  } else if (contentData.content) {
     // Convert any non-string content to a formatted string
-    content = typeof blogData.content === 'object' 
-      ? JSON.stringify(blogData.content, null, 2)
-      : String(blogData.content);
+    content = typeof contentData.content === 'object' 
+      ? JSON.stringify(contentData.content, null, 2)
+      : String(contentData.content);
     console.log("Converted non-string content to string:", content.substring(0, 100));
   }
   
@@ -132,8 +138,8 @@ export default function BlogContent({ blogData }: BlogContentProps) {
   
   // Properly extract alternativeOutputs, ensuring it's an array of strings
   let alternativeOutputs: string[] = []
-  if (blogData.allOutputs && Array.isArray(blogData.allOutputs)) {
-    alternativeOutputs = blogData.allOutputs
+  if (contentData.allOutputs && Array.isArray(contentData.allOutputs)) {
+    alternativeOutputs = contentData.allOutputs
       // Convert each item to a string if it's not already
       .map((output: any) => {
         if (typeof output === 'string') {
