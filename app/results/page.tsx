@@ -204,7 +204,7 @@ export default function ResultsPage() {
           </div>
         )}
         
-        <BlogContent blogData={blogData} />
+        <BlogContent data={blogData} />
       </CardContainer>
 
       <Footer />
