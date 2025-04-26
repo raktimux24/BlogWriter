@@ -16,7 +16,7 @@ export default function Home() {
       <Header
         showTitle={true}
         centered={true}
-        description="Transform content from around the web into beautifully written blog posts in seconds."
+        description="Transform content from around the web into beautifully written blog posts in minutes"
       />
 
       <CardContainer>
