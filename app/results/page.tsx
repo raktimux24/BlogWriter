@@ -82,6 +82,12 @@ export default function ResultsPage() {
           }
         }
         
+        // Remove any metadata flags that might trigger demo content
+        if (processedData.metadata) {
+          // Don't mark as HTML response automatically
+          delete processedData.metadata.htmlResponseReceived;
+        }
+        
         setBlogData(processedData)
         
         // Set webhook info if available

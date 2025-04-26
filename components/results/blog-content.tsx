@@ -89,17 +89,6 @@ export default function BlogContent({ data }: BlogContentProps) {
         console.log("Couldn't parse raw response as JSON")
       }
     }
-
-    // If we received HTML but have a demo post (special case), show that instead
-    if (isHtml && data.metadata?.htmlResponseReceived && content.includes('Neobrutalism in Web Design')) {
-      formatContent(content)
-        .then(formattedText => {
-          setFormattedContent(formattedText);
-        })
-        .catch(error => {
-          console.error("Error formatting content:", error);
-        });
-    }
   }, [data])
   
   const formatContent = async (content: string): Promise<string> => {
@@ -113,9 +102,19 @@ export default function BlogContent({ data }: BlogContentProps) {
       
       // Check if content is actually HTML content
       const isHTML = content.startsWith('<!DOCTYPE html>') || content.startsWith('<html');
+      
+      // Don't automatically reject HTML content - process it appropriately
       if (isHTML) {
-        console.log('Content appears to be HTML, not showing raw HTML');
-        return "ERROR: Received HTML instead of expected content. This might indicate an error with the webhook or API connection.";
+        console.log('Content appears to be HTML, processing as HTML');
+        // Use sanitizeHtml to safely render the HTML 
+        return sanitizeHtml(content, {
+          allowedTags: sanitizeHtml.defaults.allowedTags.concat(['h1', 'h2', 'img']),
+          allowedAttributes: {
+            ...sanitizeHtml.defaults.allowedAttributes,
+            '*': ['class', 'style'],
+            'img': ['src', 'alt', 'height', 'width', 'loading']
+          }
+        });
       }
       
       // Check if content appears to be JSON
