@@ -128,12 +128,105 @@ exports.handler = async function(event, context) {
     try {
       // Try to parse as JSON
       parsedResponseData = JSON.parse(responseData.data);
+      
+      // Check if we have the expected n8n format with "Output X" keys
+      const outputKeys = Object.keys(parsedResponseData).filter(key => key.startsWith('Output '));
+      
+      if (outputKeys.length > 0) {
+        // Extract the main content from the first output
+        const mainOutputKey = outputKeys[0];
+        const rawContent = parsedResponseData[mainOutputKey];
+        
+        // Clean up the content
+        let cleanContent = typeof rawContent === 'string' 
+          ? rawContent
+            .replace(/^#+\s*\n+/, '') // Remove any leading # followed by newlines
+            .replace(/^"/, '')        // Remove leading quote
+            .replace(/"$/, '')        // Remove trailing quote
+          : JSON.stringify(rawContent);
+        
+        // Extract title from the content if it starts with **
+        let title = "Generated Blog Post";
+        const titleMatch = cleanContent.match(/^\*\*([^*]+)\*\*/);
+        if (titleMatch && titleMatch[1]) {
+          title = titleMatch[1].trim();
+          // Optionally convert the first bold section to a proper markdown heading
+          cleanContent = cleanContent.replace(/^\*\*([^*]+)\*\*/, `# ${titleMatch[1]}`);
+        }
+        
+        // Get all outputs as alternative versions
+        const allOutputs = outputKeys.map(key => {
+          const output = parsedResponseData[key];
+          return typeof output === 'string' 
+            ? output
+              .replace(/^#+\s*\n+/, '')
+              .replace(/^"/, '')
+              .replace(/"$/, '')
+            : JSON.stringify(output);
+        });
+        
+        // Use properly formatted data
+        parsedResponseData = {
+          title: title,
+          content: cleanContent,
+          allOutputs: allOutputs,
+          rawResponse: responseData.data,
+          rawData: parsedResponseData,
+          metadata: {
+            requestTime: new Date().toISOString(),
+            source: "BlogWriter App",
+            webhookStatus: 'success',
+            webhookMessage: 'Successfully processed n8n output format',
+            responseStatus: responseData.statusCode,
+            responseStatusText: responseData.statusMessage,
+            outputCount: allOutputs.length,
+            responseFormat: "n8n_output_format"
+          }
+        };
+      } else {
+        // If no Output keys, try to use the raw JSON as is
+        parsedResponseData = {
+          title: "Generated Blog Post",
+          content: JSON.stringify(parsedResponseData, null, 2),
+          rawResponse: responseData.data,
+          rawData: parsedResponseData
+        };
+      }
     } catch (e) {
-      // If not valid JSON, use the raw text
-      parsedResponseData = {
-        rawResponse: responseData.data,
-        outputType: 'raw_text'
-      };
+      // If not valid JSON, try to extract content from the raw response
+      console.log("Error parsing as JSON, trying direct extraction:", e.message);
+      
+      // Look for n8n output pattern
+      const outputMatch = responseData.data.match(/"Output \d+":\s*"([\s\S]+?)(?:"\s*}|\s*,\s*")/);
+      if (outputMatch && outputMatch[1]) {
+        // Clean the extracted content
+        const extractedContent = outputMatch[1]
+          .replace(/\\n/g, '\n')
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, '\\');
+        
+        // Extract title from the content if it starts with **
+        let title = "Generated Blog Post";
+        const titleMatch = extractedContent.match(/^\*\*([^*]+)\*\*/);
+        if (titleMatch && titleMatch[1]) {
+          title = titleMatch[1].trim();
+        }
+        
+        parsedResponseData = {
+          title: title,
+          content: extractedContent,
+          rawResponse: responseData.data,
+          outputType: 'extracted_text'
+        };
+      } else {
+        // Fallback if can't extract content
+        parsedResponseData = {
+          title: "Generated Blog Post",
+          content: responseData.data,
+          rawResponse: responseData.data,
+          outputType: 'raw_text'
+        };
+      }
     }
     
     // Return the result
