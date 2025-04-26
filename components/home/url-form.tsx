@@ -89,43 +89,47 @@ export default function UrlForm() {
       // Log that we're sending data to n8n webhook
       console.log("Sending URLs to n8n webhook:", validUrls)
       
-      // Try the primary function endpoint first
       let response;
       let functionError: Error | null = null;
       
-      try {
-        // Try ES module version first
-        response = await fetch('/.netlify/functions/generate-blog', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ urls: validUrls }),
-        });
-      } catch (err: any) {
-        console.warn("Error calling primary function, trying fallback:", err);
-        functionError = err instanceof Error ? err : new Error(String(err));
-        
-        // Try CommonJS version as fallback
+      // Try functions in order, falling back to the next if one fails
+      const functionEndpoints = [
+        '/.netlify/functions/generate-blog-simple', // Try simplest version first
+        '/.netlify/functions/generate-blog',        // Then ES modules version
+        '/.netlify/functions/generate-blog-cjs'     // Then CommonJS version
+      ];
+      
+      for (let i = 0; i < functionEndpoints.length; i++) {
+        const endpoint = functionEndpoints[i];
         try {
-          response = await fetch('/.netlify/functions/generate-blog-cjs', {
+          console.log(`Trying function endpoint ${i+1}/${functionEndpoints.length}: ${endpoint}`);
+          response = await fetch(endpoint, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({ urls: validUrls }),
           });
-          functionError = null;
-        } catch (fallbackErr: any) {
-          console.error("Error calling fallback function too:", fallbackErr);
-          throw new Error(`Failed to call Netlify functions: ${
-            fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)
-          }. Original error: ${functionError?.message || 'Unknown error'}`);
+          
+          if (response.ok) {
+            console.log(`Successfully called function at ${endpoint}`);
+            break; // Exit the loop if successful
+          } else {
+            console.warn(`Function at ${endpoint} returned status ${response.status}`);
+            functionError = new Error(`Error from ${endpoint}: ${response.status} ${response.statusText}`);
+            // Continue to next function if this one returned an error status
+          }
+        } catch (err: any) {
+          console.warn(`Error calling function at ${endpoint}:`, err);
+          functionError = err instanceof Error ? err : new Error(String(err));
+          // Continue to next function
         }
       }
       
       if (!response || !response.ok) {
-        throw new Error(`Error from Netlify function: ${response?.status || 'No response'} ${response?.statusText || ''}`);
+        throw new Error(`All function endpoints failed. Last error: ${
+          functionError?.message || 'Unknown error'
+        }`);
       }
       
       const blogData = await response.json();
