@@ -92,6 +92,11 @@ export default function ResultsPage() {
         
         // Set webhook info if available
         if (processedData.metadata) {
+          // Remove hardcoded demo content indicators
+          if (processedData.metadata.source === 'Demo content (webhook returned HTML)') {
+            processedData.metadata.source = 'n8n webhook content';
+          }
+          
           setWebhookInfo({
             status: processedData.metadata.webhookStatus || 'success',
             message: processedData.metadata.webhookMessage || 

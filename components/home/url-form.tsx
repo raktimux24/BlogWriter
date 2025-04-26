@@ -94,9 +94,9 @@ export default function UrlForm() {
       
       // Try functions in order, falling back to the next if one fails
       const functionEndpoints = [
-        '/.netlify/functions/generate-blog-simple', // Try simplest version first
-        '/.netlify/functions/generate-blog',        // Then ES modules version
-        '/.netlify/functions/generate-blog-cjs'     // Then CommonJS version
+        'api/generate-blog-simple', // Try simplest version first as API route
+        'api/generate-blog',        // Then ES modules version
+        'api/generate-blog-cjs'     // Then CommonJS version
       ];
       
       for (let i = 0; i < functionEndpoints.length; i++) {

@@ -4,6 +4,6 @@
   "description": "Netlify serverless functions for BlogWriter",
   "type": "module",
   "dependencies": {
-    "node-fetch": "^2.6.7"
+    "node-fetch": "^2.7.0"
   }
-} 
+}

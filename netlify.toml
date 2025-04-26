@@ -15,10 +15,10 @@
   to = "/api/:splat"
   status = 200
 
-# Fix for Netlify Functions
+# Fix for Netlify Functions - removing the leading / from the path
 [[redirects]]
-  from = "/.netlify/functions/*"
-  to = "/.netlify/functions/:splat"
+  from = ".netlify/functions/*"
+  to = ".netlify/functions/:splat"
   status = 200
   force = true
 

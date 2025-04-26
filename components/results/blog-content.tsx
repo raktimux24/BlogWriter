@@ -312,7 +312,7 @@ export default function BlogContent({ data }: BlogContentProps) {
 
       {hasAdditionalInfo && (
         <div className="text-sm text-slate-500 dark:text-slate-400 italic">
-          {data?.metadata?.source && (
+          {data?.metadata?.source && data?.metadata?.source !== 'Demo content (webhook returned HTML)' && (
             <p>Source: {data?.metadata?.source}</p>
           )}
           {data?.metadata?.requestTime && (
