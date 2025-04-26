@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     
     // Get webhook URL from environment variables or use default
     const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || 
-      "https://makeshifttdesign23.app.n8n.cloud/webhook/02fce493-0834-4ab8-a040-3d23871019a1";
+      "https://makeshifttdesign23.app.n8n.cloud/webhook-test/02fce493-0834-4ab8-a040-3d23871019a1";
       
     console.log("Using webhook URL:", n8nWebhookUrl.substring(0, n8nWebhookUrl.indexOf("/webhook")) + "/webhook/***");
     
@@ -52,72 +52,84 @@ export async function POST(request: NextRequest) {
     
     // Check if the response is HTML (likely an error page)
     if (responseData.trim().startsWith('<!DOCTYPE html>') || responseData.trim().startsWith('<html>')) {
-      console.error("Received HTML response from webhook. This might indicate an error or authentication issue.");
+      console.warn("Received HTML response from webhook. Attempting to process it anyway.");
       
-      // Generate a fake blog post for demo purposes
-      const demoPost = {
-        title: "Neobrutalism in Web Design: Bold, Raw, and Functional",
-        content: `# Neobrutalism in Web Design: Bold, Raw, and Functional
+      try {
+        // Try to extract any usable information from the response
+        return NextResponse.json({
+          title: "Content from n8n Webhook",
+          content: responseData,
+          rawResponse: responseData,
+          metadata: {
+            webhookStatus: 'warning',
+            webhookMessage: 'Received HTML from webhook, attempting to render it',
+            requestTime: new Date().toISOString(),
+            source: 'n8n webhook (HTML response)',
+            responseFormat: 'html'
+          }
+        });
+      } catch (e) {
+        console.error("Failed to process HTML response:", e);
+        
+        // Generate a fallback post only if processing fails completely
+        const fallbackPost = {
+          title: "Neobrutalism in Web Design: Bold, Raw, and Functional",
+          content: `# Neobrutalism in Web Design: Bold, Raw, and Functional
 
 ## What is Neobrutalism?
 
-Neobrutalism in web design is a modern interpretation of the brutalist architecture movement, characterized by bold colors, raw functionality, and an unpolished aesthetic. It embraces imperfection and prioritizes function over traditional design rules.
+Neobrutalism in web design is a modern interpretation of the brutalist architecture movement, characterized by bold colors, raw elements, and functional aesthetics.
 
 ## Key Characteristics
 
-1. **High-contrast color schemes**: Vibrant, sometimes clashing colors that create visual interest
-2. **Chunky elements**: Large buttons, thick borders, and oversized typography
-3. **Raw functionality**: Minimal decoration with emphasis on usability
-4. **Deliberate "imperfections"**: Asymmetrical layouts, overlapping elements, and unconventional spacing
-5. **Simplified illustrations**: Bold, cartoonish graphics with minimal detail
-
-## Benefits of Neobrutalist Design
-
-- **Memorable user experience**: Stands out from minimalist designs dominating the web
-- **Improved accessibility**: High contrast elements benefit many users with visual impairments
-- **Honest representation**: Embraces the digital medium without trying to mimic physical materials
-- **Faster loading times**: Simplified graphics and minimal effects lead to better performance
+* **Bold, high-contrast colors** - Neon hues and stark color combinations
+* **Raw, unpolished elements** - Visible borders, simple shapes, and unrefined aesthetics
+* **Playful typography** - Oversized, chunky fonts that command attention
+* **Asymmetrical layouts** - Breaking away from traditional grid systems
+* **Functional minimalism** - Stripping away unnecessary elements while maintaining usability
 
 ## When to Use Neobrutalism
 
 Neobrutalism works particularly well for:
-- Creative agencies and portfolios
-- Youth-oriented brands
-- Projects wanting to make a bold statement
-- Websites seeking to stand out from conventional designs
 
-## Design Tips
+* Creative agencies and portfolios
+* Tech startups looking to stand out
+* Cultural and artistic platforms
+* Projects targeting younger demographics
+* Brands wanting to convey authenticity and boldness
 
-- Start with a simple grid structure, then intentionally break some rules
-- Use high-contrast color combinations, but limit your palette
-- Incorporate "imperfect" elements that feel handmade
-- Balance the raw aesthetic with good usability practices
-- Don't abandon all design principles—maintain hierarchy and readability
+## Implementation Tips
+
+1. Start with a simple layout and add bold colors
+2. Use chunky, oversized UI elements
+3. Don't be afraid of asymmetry and unusual proportions
+4. Maintain accessibility despite the high-contrast design
+5. Ensure usability remains a priority
 
 ## The Future of Neobrutalism
 
-While some see neobrutalism as a passing trend, its influence is likely to have lasting effects on web design. The style represents a reaction against overly polished interfaces and reminds us that digital experiences can be both functional and expressive.
-
-Whether you embrace neobrutalism fully or incorporate elements into a more conventional design, this bold approach offers a refreshing alternative to the homogeneous look of many modern websites.`,
-        metadata: {
-          source: "Demo content (webhook returned HTML)",
-          note: "This is generated demo content as the actual webhook returned HTML"
-        }
-      };
-      
-      return NextResponse.json({
-        success: true,
-        data: demoPost,
-        metadata: {
-          requestTime: new Date().toISOString(),
-          source: "BlogWriter API Route (Demo Data)",
-          webhookStatus: 'error',
-          webhookMessage: 'Webhook returned HTML instead of JSON. Using demo data instead.',
-          responseStatus: response.status,
-          responseStatusText: response.statusText,
-          htmlResponseReceived: true
-        }
-      });
+As users grow tired of homogeneous minimalist designs, Neobrutalism offers a refreshing alternative that prioritizes personality and expressiveness. While it may not be suitable for every brand, this bold approach offers a refreshing alternative to the homogeneous look of many modern websites.`,
+          metadata: {
+            requestTime: new Date().toISOString(),
+            source: "Demo content (webhook returned HTML)",
+            note: "This is generated demo content as the actual webhook returned HTML"
+          }
+        };
+        
+        return NextResponse.json({
+          success: true,
+          data: fallbackPost,
+          metadata: {
+            requestTime: new Date().toISOString(),
+            source: "BlogWriter API Route (Demo Data)",
+            webhookStatus: 'error',
+            webhookMessage: 'Webhook returned HTML instead of JSON. Using demo data instead.',
+            responseStatus: response.status,
+            responseStatusText: response.statusText,
+            htmlResponseReceived: true
+          }
+        });
+      }
     }
     
     let parsedData: any;
